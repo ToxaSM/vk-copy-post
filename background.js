@@ -1,12 +1,4 @@
 chrome.action.onClicked.addListener((tab) => {
-  if (!tab.url.includes("vk.com")) {
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => alert("Ошибка: Откройте страницу ВКонтакте")
-    });
-    return;
-  }
-
   chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: extractAndCopyVKPostData,
@@ -14,6 +6,12 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 function extractAndCopyVKPostData() {
+  // 1. ПРОВЕРКА АДРЕСА ПРЯМО НА СТРАНИЦЕ (работает 100%)
+  if (!window.location.hostname.includes("vk.com") && !window.location.hostname.includes("vk.ru")) {
+    alert("Ошибка: Откройте страницу ВКонтакте");
+    return;
+  }
+
   function showToast(message, duration = 3000, color = "#28a745") {
     let existing = document.getElementById('vk-html-toast');
     if (existing) existing.remove();
@@ -28,7 +26,7 @@ function extractAndCopyVKPostData() {
 
   showToast("⚡ Собираем текст и фото...", 2000, "#0077FF");
 
-  // 1. ИЗВЛЕЧЕНИЕ ТЕКСТА
+  // 2. ИЗВЛЕЧЕНИЕ ТЕКСТА
   const textSelectors = ['.wk_text', '.PostText', '[class*="PostText"]', '.wall_post_text', '[class*="wall_post_text"]', 'div[data-testid="post-text"]', '[class*="vkitPostText"]', '.v-wall-post__text', '.pi_text'];
 
   let textEl = null;
@@ -81,7 +79,7 @@ img {
   let postContainer = textEl ? textEl.closest('.post, .wall_item, div[data-testid="post"], [class*="vkitPost__root"], div[class*="Post--"]') : document;
   if (!postContainer) postContainer = document;
 
-  // 2. ИЗВЛЕЧЕНИЕ ФОТОГРАФИЙ
+  // 3. ИЗВЛЕЧЕНИЕ ФОТОГРАФИЙ
   let imageUrls = new Set();
   let photoLinks = postContainer.querySelectorAll('a[href*="photo-"], a[href*="z=photo"], a[data-photo-id]');
 
@@ -110,7 +108,7 @@ img {
 
   htmlResult += `</div>`;
 
-  // 3. КОПИРОВАНИЕ В БУФЕР И УВЕДОМЛЕНИЕ
+  // 4. КОПИРОВАНИЕ В БУФЕР
   fallbackCopyTextToClipboard(htmlResult);
 
   function fallbackCopyTextToClipboard(text) {
