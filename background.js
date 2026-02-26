@@ -6,7 +6,7 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 function extractAndCopyVKPostData() {
-  // 1. ПРОВЕРКА АДРЕСА ПРЯМО НА СТРАНИЦЕ (работает 100%)
+  // 1. ПРОВЕРКА АДРЕСА (работает для vk.com и vk.ru)
   if (!window.location.hostname.includes("vk.com") && !window.location.hostname.includes("vk.ru")) {
     alert("Ошибка: Откройте страницу ВКонтакте");
     return;
@@ -24,7 +24,36 @@ function extractAndCopyVKPostData() {
     setTimeout(() => { toast.remove(); }, duration);
   }
 
-  showToast("⚡ Собираем текст и фото...", 2000, "#0077FF");
+  showToast("⚡ Собираем текст, фото и ссылки...", 2000, "#0077FF");
+
+  // Вспомогательная функция для получения максимального качества картинки
+  function getHighResUrl(urlStr) {
+    try {
+      let url = new URL(urlStr);
+      let asParam = url.searchParams.get('as');
+      
+      if (asParam) {
+        // Разбиваем строку "32x20,48x30,...,2560x1600"
+        let sizes = asParam.split(',');
+        
+        // Ищем максимальное разрешение (сравниваем по ширине)
+        let maxSize = sizes.reduce((max, current) => {
+          let width = parseInt(current.split('x')[0], 10) || 0;
+          let maxWidth = parseInt(max.split('x')[0], 10) || 0;
+          return width > maxWidth ? current : max;
+        }, "0x0");
+        
+        // Подставляем максимальное значение в параметр cs
+        if (maxSize !== "0x0") {
+          url.searchParams.set('cs', maxSize);
+          return url.toString();
+        }
+      }
+    } catch (e) {
+      console.error("Ошибка при обработке URL картинки:", e);
+    }
+    return urlStr; // Возвращаем оригинал, если что-то пошло не так
+  }
 
   // 2. ИЗВЛЕЧЕНИЕ ТЕКСТА
   const textSelectors = ['.wk_text', '.PostText', '[class*="PostText"]', '.wall_post_text', '[class*="wall_post_text"]', 'div[data-testid="post-text"]', '[class*="vkitPostText"]', '.v-wall-post__text', '.pi_text'];
@@ -38,16 +67,86 @@ function extractAndCopyVKPostData() {
     if (textEl) break;
   }
 
-  let textRaw = textEl ? textEl.innerHTML : "Текст записи не найден.";
+  let cleanTextHtml = "Текст записи не найден.";
 
-  textRaw = textRaw.replace(/<br\s*\/?>/gi, "\n");
-  textRaw = textRaw.replace(/<\/p>|<\/div>/gi, "\n");
-  textRaw = textRaw.replace(/<[^>]+>/g, "");
-  textRaw = textRaw.replace(/Показать полностью\s*/gi, "");
-  textRaw = textRaw.replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "");
-  textRaw = textRaw.trim().replace(/\n{2,}/g, "\n\n");
+  if (textEl) {
+    // Клонируем элемент, чтобы не сломать саму страницу ВК
+    let clone = textEl.cloneNode(true);
 
-  let cleanTextHtml = textRaw.replace(/\n/g, "<br>\n");
+    // Удаляем кнопку "Показать полностью..." и скрытые элементы
+    let moreBtns = clone.querySelectorAll('.wall_post_more, .v-wall-post__more, [style*="display: none"]');
+    moreBtns.forEach(btn => btn.remove());
+
+    // ОБРАБОТКА ССЫЛОК
+    let links = clone.querySelectorAll('a');
+    links.forEach(a => {
+        let href = a.getAttribute('href') || "";
+        let text = a.innerText.trim();
+
+        // Если это хэштег, убираем ссылку и оставляем только текст
+        if (text.startsWith('#')) {
+            let textNode = document.createTextNode(text);
+            a.replaceWith(textNode);
+            return; // Переходим к следующей ссылке
+        }
+
+        // Очищаем внешние ссылки от редиректа ВКонтакте (away.php)
+        if (href.includes('away.php?to=')) {
+            try {
+                let urlParams = new URLSearchParams(href.split('?')[1]);
+                let realUrl = urlParams.get('to');
+                if (realUrl) href = decodeURIComponent(realUrl);
+            } catch (e) {}
+        } else if (href.startsWith('/')) {
+            // Превращаем внутренние ссылки в полные
+            href = 'https://vk.com' + href;
+        }
+
+        // Создаем чистый тег ссылки
+        let cleanA = document.createElement('a');
+        cleanA.href = href;
+        cleanA.target = "_blank";
+        cleanA.rel = "noopener noreferrer";
+        cleanA.innerText = text;
+        
+        a.replaceWith(cleanA);
+    });
+
+    // Заменяем переносы ВК на обычные \n для удобства обработки
+    let htmlContent = clone.innerHTML;
+    htmlContent = htmlContent.replace(/<br\s*\/?>/gi, "\n");
+    htmlContent = htmlContent.replace(/<\/p>|<\/div>/gi, "\n");
+
+    // Вспомогательный элемент для безопасного извлечения текста и ссылок
+    let tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlContent;
+
+    // Рекурсивная функция: забирает только текст и наши чистые ссылки <a>, игнорируя мусор
+    function extractTextAndLinks(node) {
+        let result = "";
+        for (let child of node.childNodes) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                result += child.textContent;
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+                if (child.tagName.toLowerCase() === 'a') {
+                    result += child.outerHTML; // Оставляем ссылку целиком
+                } else {
+                    result += extractTextAndLinks(child);
+                }
+            }
+        }
+        return result;
+    }
+
+    let textRaw = extractTextAndLinks(tempDiv);
+
+    // Удаляем эмодзи и убираем лишние пустые строки
+    textRaw = textRaw.replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "");
+    textRaw = textRaw.trim().replace(/\n{2,}/g, "\n\n");
+
+    // Возвращаем HTML-переносы
+    cleanTextHtml = textRaw.replace(/\n/g, "<br>\n");
+  }
 
   let htmlResult = `<style type="text/css">
 a,p, .toggle .toggle-content p {font-size: 18px;}
@@ -87,14 +186,16 @@ img {
     let img = link.querySelector('img');
     if (img) {
       let src = img.src || img.getAttribute('data-src');
-      if (src && src.startsWith('http')) imageUrls.add(src);
+      // ПРИМЕНЯЕМ НОВУЮ ФУНКЦИЮ ЗДЕСЬ
+      if (src && src.startsWith('http')) imageUrls.add(getHighResUrl(src));
     } else {
       let elements = link.querySelectorAll('*');
       [link, ...elements].forEach(node => {
         let bg = window.getComputedStyle(node).backgroundImage;
         if (bg && bg !== 'none' && bg.includes('url')) {
           let match = bg.match(/url\(["']?(.*?)["']?\)/);
-          if (match && match[1] && match[1].startsWith('http')) imageUrls.add(match[1]);
+          // И ЗДЕСЬ
+          if (match && match[1] && match[1].startsWith('http')) imageUrls.add(getHighResUrl(match[1]));
         }
       });
     }
