@@ -1,16 +1,24 @@
 {
   "manifest_version": 3,
   "name": "[DNO_IT] VK Copy Post",
-  "version": "1.7",
-  "description": "Копирует пост ВК в HTML по клику для встраивания на типовой школьный сайт",
-  "permissions": ["activeTab", "scripting"],
+  "version": "2.0",
+  "description": "Копирует посты ВК в HTML: через встроенные кнопки в ленте или по клику на иконку расширения",
+  "permissions": ["activeTab", "scripting", "storage"],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["*://*.vk.com/*", "*://*.vk.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
-    "default_title": "Скопировать пост",
+    "default_title": "Скопировать первый пост",
     "default_icon": "icon.png"
   },
+  "options_page": "options.html",
   "icons": {
     "128": "icon.png"
   }
