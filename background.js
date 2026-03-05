@@ -5,7 +5,7 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-function extractAndCopyVKPostData() {
+async function extractAndCopyVKPostData() {
   // 1. ПРОВЕРКА АДРЕСА (работает для vk.com и vk.ru)
   if (!window.location.hostname.includes("vk.com") && !window.location.hostname.includes("vk.ru")) {
     alert("Ошибка: Откройте страницу ВКонтакте");
@@ -24,7 +24,39 @@ function extractAndCopyVKPostData() {
     setTimeout(() => { toast.remove(); }, duration);
   }
 
-  showToast("⚡ Собираем текст, фото и ссылки...", 2000, "#0077FF");
+  showToast("⚡ Раскрываем пост и собираем данные...", 2000, "#0077FF");
+
+  // --- ОБНОВЛЕННЫЙ БЛОК: РАСКРЫТИЕ ТЕКСТА ТОЛЬКО ВНУТРИ ПОСТОВ ---
+  const moreBtnsSelectors = [
+    '[data-id="showMoreButton"]', 
+    '[data-testid="showmoretext-after"] span',
+    '[data-testid="showmoretext-after"]',
+    '.wall_post_more', 
+    '.v-wall-post__more', 
+    '.PostTextMore', 
+    '.pi_text_more'
+  ];
+  
+  let wasExpanded = false;
+
+  for (let selector of moreBtnsSelectors) {
+    let btns = document.querySelectorAll(selector);
+    for (let btn of btns) {
+      // ПРОВЕРКА: Находится ли кнопка внутри поста?
+      let isInsidePost = btn.closest('.post, .wall_item, div[data-testid="post"], [class*="vkitPost__root"], div[class*="Post--"], ._post');
+      
+      // Кликаем только если кнопка видима И находится внутри поста
+      if (isInsidePost && btn.style.display !== 'none' && btn.offsetParent !== null) {
+        btn.click();
+        wasExpanded = true;
+      }
+    }
+  }
+
+  if (wasExpanded) {
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+  // ------------------------------------
 
   // Вспомогательная функция для получения максимального качества картинки
   function getHighResUrl(urlStr) {
@@ -33,17 +65,13 @@ function extractAndCopyVKPostData() {
       let asParam = url.searchParams.get('as');
       
       if (asParam) {
-        // Разбиваем строку "32x20,48x30,...,2560x1600"
         let sizes = asParam.split(',');
-        
-        // Ищем максимальное разрешение (сравниваем по ширине)
         let maxSize = sizes.reduce((max, current) => {
           let width = parseInt(current.split('x')[0], 10) || 0;
           let maxWidth = parseInt(max.split('x')[0], 10) || 0;
           return width > maxWidth ? current : max;
         }, "0x0");
         
-        // Подставляем максимальное значение в параметр cs
         if (maxSize !== "0x0") {
           url.searchParams.set('cs', maxSize);
           return url.toString();
@@ -52,7 +80,7 @@ function extractAndCopyVKPostData() {
     } catch (e) {
       console.error("Ошибка при обработке URL картинки:", e);
     }
-    return urlStr; // Возвращаем оригинал, если что-то пошло не так
+    return urlStr; 
   }
 
   // 2. ИЗВЛЕЧЕНИЕ ТЕКСТА
@@ -62,7 +90,13 @@ function extractAndCopyVKPostData() {
   for (let selector of textSelectors) {
     let elements = document.querySelectorAll(selector);
     for (let el of elements) {
-      if (el && el.innerText.trim().length > 0) { textEl = el; break; }
+      if (el && el.innerText.trim().length > 0) { 
+        // Дополнительная проверка: берем текст тоже только из постов
+        if (el.closest('.post, .wall_item, div[data-testid="post"], [class*="vkitPost__root"], div[class*="Post--"], ._post')) {
+          textEl = el; 
+          break; 
+        }
+      }
     }
     if (textEl) break;
   }
@@ -70,27 +104,22 @@ function extractAndCopyVKPostData() {
   let cleanTextHtml = "Текст записи не найден.";
 
   if (textEl) {
-    // Клонируем элемент, чтобы не сломать саму страницу ВК
     let clone = textEl.cloneNode(true);
 
-    // Удаляем кнопку "Показать полностью..." и скрытые элементы
-    let moreBtns = clone.querySelectorAll('.wall_post_more, .v-wall-post__more, [style*="display: none"]');
+    let moreBtns = clone.querySelectorAll('.wall_post_more, .v-wall-post__more, [data-id="showMoreButton"], [data-testid="showmoretext-after"], [style*="display: none"]');
     moreBtns.forEach(btn => btn.remove());
 
-    // ОБРАБОТКА ССЫЛОК
     let links = clone.querySelectorAll('a');
     links.forEach(a => {
         let href = a.getAttribute('href') || "";
         let text = a.innerText.trim();
 
-        // Если это хэштег, убираем ссылку и оставляем только текст
         if (text.startsWith('#')) {
             let textNode = document.createTextNode(text);
             a.replaceWith(textNode);
-            return; // Переходим к следующей ссылке
+            return;
         }
 
-        // Очищаем внешние ссылки от редиректа ВКонтакте (away.php)
         if (href.includes('away.php?to=')) {
             try {
                 let urlParams = new URLSearchParams(href.split('?')[1]);
@@ -98,11 +127,9 @@ function extractAndCopyVKPostData() {
                 if (realUrl) href = decodeURIComponent(realUrl);
             } catch (e) {}
         } else if (href.startsWith('/')) {
-            // Превращаем внутренние ссылки в полные
             href = 'https://vk.com' + href;
         }
 
-        // Создаем чистый тег ссылки
         let cleanA = document.createElement('a');
         cleanA.href = href;
         cleanA.target = "_blank";
@@ -112,16 +139,13 @@ function extractAndCopyVKPostData() {
         a.replaceWith(cleanA);
     });
 
-    // Заменяем переносы ВК на обычные \n для удобства обработки
     let htmlContent = clone.innerHTML;
     htmlContent = htmlContent.replace(/<br\s*\/?>/gi, "\n");
     htmlContent = htmlContent.replace(/<\/p>|<\/div>/gi, "\n");
 
-    // Вспомогательный элемент для безопасного извлечения текста и ссылок
     let tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlContent;
 
-    // Рекурсивная функция: забирает только текст и наши чистые ссылки <a>, игнорируя мусор
     function extractTextAndLinks(node) {
         let result = "";
         for (let child of node.childNodes) {
@@ -129,7 +153,7 @@ function extractAndCopyVKPostData() {
                 result += child.textContent;
             } else if (child.nodeType === Node.ELEMENT_NODE) {
                 if (child.tagName.toLowerCase() === 'a') {
-                    result += child.outerHTML; // Оставляем ссылку целиком
+                    result += child.outerHTML;
                 } else {
                     result += extractTextAndLinks(child);
                 }
@@ -140,11 +164,9 @@ function extractAndCopyVKPostData() {
 
     let textRaw = extractTextAndLinks(tempDiv);
 
-    // Удаляем эмодзи и убираем лишние пустые строки
     textRaw = textRaw.replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "");
     textRaw = textRaw.trim().replace(/\n{2,}/g, "\n\n");
 
-    // Возвращаем HTML-переносы
     cleanTextHtml = textRaw.replace(/\n/g, "<br>\n");
   }
 
@@ -175,7 +197,7 @@ img {
 
 <p>${cleanTextHtml}</p>\n\n`;
 
-  let postContainer = textEl ? textEl.closest('.post, .wall_item, div[data-testid="post"], [class*="vkitPost__root"], div[class*="Post--"]') : document;
+  let postContainer = textEl ? textEl.closest('.post, .wall_item, div[data-testid="post"], [class*="vkitPost__root"], div[class*="Post--"], ._post') : document;
   if (!postContainer) postContainer = document;
 
   // 3. ИЗВЛЕЧЕНИЕ ФОТОГРАФИЙ
@@ -186,7 +208,6 @@ img {
     let img = link.querySelector('img');
     if (img) {
       let src = img.src || img.getAttribute('data-src');
-      // ПРИМЕНЯЕМ НОВУЮ ФУНКЦИЮ ЗДЕСЬ
       if (src && src.startsWith('http')) imageUrls.add(getHighResUrl(src));
     } else {
       let elements = link.querySelectorAll('*');
@@ -194,7 +215,6 @@ img {
         let bg = window.getComputedStyle(node).backgroundImage;
         if (bg && bg !== 'none' && bg.includes('url')) {
           let match = bg.match(/url\(["']?(.*?)["']?\)/);
-          // И ЗДЕСЬ
           if (match && match[1] && match[1].startsWith('http')) imageUrls.add(getHighResUrl(match[1]));
         }
       });
