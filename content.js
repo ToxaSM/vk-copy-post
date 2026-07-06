@@ -35,7 +35,8 @@ function getHighResUrl(urlStr) {
 async function processPost(postArticle) {
   showToast("⚡ Раскрываем пост и собираем данные...", 2000, "#0077FF");
 
-  let moreBtns = postArticle.querySelectorAll('[data-id="showMoreButton"], [data-testid="showmoretext-after"], .wall_post_more, .v-wall-post__more');
+  // 1. Раскрываем кнопку "Показать полностью"
+  let moreBtns = postArticle.querySelectorAll('[data-id="showMoreButton"], [data-testid="showmoretext-after"], .wall_post_more, .v-wall-post__more, [class*="PostTextMore"]');
   let wasExpanded = false;
 
   moreBtns.forEach(btn => {
@@ -47,15 +48,47 @@ async function processPost(postArticle) {
 
   if (wasExpanded) await new Promise(resolve => setTimeout(resolve, 800));
 
-  const textSelectors = ['.wk_text', '.PostText', '[class*="PostText"]', '.wall_post_text', '[class*="wall_post_text"]', 'div[data-testid="post-text"]', '[class*="vkitPostText"]', '.v-wall-post__text', '.pi_text'];
+  // 2. Ищем ТОЛЬКО блок с текстом записи
+  const textSelectors = [
+    '[data-testid="showmoretext"]', 
+    '[data-testid="showmoretext-in-expanded"]',
+    '[id^="text-"]', 
+    '[data-testid="post-text"]', 
+    '.wall_post_text', 
+    '.wk_text',
+    '[class*="PostText__"]', 
+    '[class*="postText"]', 
+    '[class*="vkitPostText"]'
+  ];
+  
   let textEl = null;
   
   for (let selector of textSelectors) {
     let elements = postArticle.querySelectorAll(selector);
     for (let el of elements) {
-      if (el && el.innerText.trim().length > 0) { textEl = el; break; }
+      if (el && el.innerText.trim().length > 5) { textEl = el; break; }
     }
     if (textEl) break;
+  }
+
+  // Строгий умный поиск на случай форс-мажора
+  if (!textEl) {
+    let allBlocks = postArticle.querySelectorAll('div, span');
+    let maxTextLen = 0;
+    
+    allBlocks.forEach(el => {
+      if (el.querySelectorAll('div').length > 4) return;
+      let attrs = ((el.className || '') + ' ' + (el.getAttribute('data-testid') || '')).toLowerCase();
+      if (attrs.includes('header') || attrs.includes('author') || attrs.includes('action') || 
+          attrs.includes('reaction') || attrs.includes('bottom') || attrs.includes('footer') || 
+          attrs.includes('like') || attrs.includes('reply')) return;
+      
+      let textLen = el.innerText.trim().length;
+      if (textLen > maxTextLen && textLen > 10) {
+        maxTextLen = textLen;
+        textEl = el;
+      }
+    });
   }
 
   let cleanTextHtml = "Текст записи не найден.";
@@ -85,6 +118,7 @@ async function processPost(postArticle) {
         if (child.nodeType === Node.TEXT_NODE) result += child.textContent;
         else if (child.nodeType === Node.ELEMENT_NODE) {
           if (child.tagName.toLowerCase() === 'a') result += child.outerHTML;
+          else if (child.tagName.toLowerCase() === 'img' && child.alt) result += child.alt; 
           else result += extractTextAndLinks(child);
         }
       }
@@ -131,148 +165,88 @@ img { width: 600px; height: auto; max-width: 90vw; display: block; margin: 15px 
   document.body.removeChild(textArea);
 }
 
-// --- ЛОГИКА ДОБАВЛЕНИЯ КНОПОК ---
+// --- ЛОГИКА ОПРЕДЕЛЕНИЯ ПОСТА ---
 function isRealPost(article) {
   if (article.querySelector('.FCThumb__close, [class*="FCThumb"]')) return false; 
   if (article.querySelector('[data-ad-view], [data-ad-block-uid], .wall_marked_as_ads, .PostHeaderSubtitle--ad, [data-testid="post-ad-mark"]')) return false;
-
-  let postTextNode = article.querySelector('.wall_post_text, .wk_text, [class*="PostText"], [data-testid="post-text"]');
-  let tinyElements = article.querySelectorAll('span, div, a');
-  
-  for (let el of tinyElements) {
-    let text = el.textContent || "";
-    if (text.length > 40 || text.length < 5) continue;
-    if (postTextNode && postTextNode.contains(el)) continue;
-
-    let normalizedText = text.toLowerCase()
-      .replace(/a/g, 'а').replace(/e/g, 'е').replace(/o/g, 'о')
-      .replace(/p/g, 'р').replace(/c/g, 'с').replace(/x/g, 'х')
-      .replace(/y/g, 'у').replace(/m/g, 'м');
-
-    let cleanText = normalizedText.replace(/[^а-яё]/g, '');
-    
-    if (cleanText === 'реклама' || cleanText === 'рекламнаязапись' || cleanText === 'промо' ||
-        cleanText === 'рекомендуемввидео' || cleanText === 'рекомендуемыесообщества' || cleanText === 'возможновызнакомы') {
-      return false;
-    }
-  }
   return true; 
 }
 
-function injectCopyButtons() {
-  document.querySelectorAll('article').forEach(article => {
-    // 1. Если это не пост - удаляем нашу панель, если она там была
-    if (!isRealPost(article)) {
-      let existingWrapper = article.querySelector('.dno-copy-wrapper');
-      if (existingWrapper) existingWrapper.remove();
-      return;
+// --- СИСТЕМА ИНТЕГРАЦИИ В МЕНЮ "3 ТОЧКИ" ---
+let currentArticle = null;
+
+// Перехватываем клик по новым трем точкам
+document.addEventListener('click', (e) => {
+  let moreBtn = e.target.closest('[data-testid="post_context_menu_toggle"], [aria-label="Действия"], [aria-label="Больше"], [data-testid*="more"], .PostHeaderActionsButton');
+  if (moreBtn) {
+    // Поднимаемся к главному контейнеру поста (используем точный селектор из вашего HTML)
+    let article = moreBtn.closest('[data-testid="post-content-container"], article, .post, ._post, [data-testid="post"], [class*="Post__container"]');
+    if (article) {
+      currentArticle = article;
     }
+  }
+}, true);
 
-    // 2. Если кнопки еще нет - создаем её
-    if (!article.querySelector('.dno-copy-btn')) {
-      
-      // СОЗДАЕМ СОБСТВЕННУЮ ПАНЕЛЬ (Она займет свое место и ничего не перекроет)
-      let wrapper = document.createElement('div');
-      wrapper.className = 'dno-copy-wrapper';
-      wrapper.style.cssText = `
-        display: flex; 
-        justify-content: flex-end; 
-        padding: 12px 16px 0px; 
-        margin-bottom: -15px; /* Слегка подтягиваем контент ВК наверх, чтобы не было дыры */
-        position: relative; 
-        z-index: 10;
-        margin-bottom: 2px;
-        border-top: 2px solid rgba(0, 0, 0, 0.05);
-      `;
-
-      // САМА КНОПКА
-      let btn = document.createElement('button');
-      btn.className = 'dno-copy-btn';
-      btn.innerHTML = '📋 Копировать HTML';
-      
-      btn.style.cssText = `
-        background-color: rgba(0, 119, 255, 0.08); 
-        color: #0077FF; 
-        border: 1px solid rgba(0, 119, 255, 0.2); 
-        border-radius: 6px; 
-        padding: 5px 12px; 
-        font-size: 12px; 
-        font-weight: 500;
-        font-family: sans-serif; 
-        cursor: pointer; 
-        transition: all 0.2s;
-      `;
-      
-      // Эффекты при наведении
-      btn.onmouseover = () => {
-        btn.style.backgroundColor = '#0077FF';
-        btn.style.color = 'white';
-      };
-      btn.onmouseout = () => {
-        btn.style.backgroundColor = 'rgba(0, 119, 255, 0.08)';
-        btn.style.color = '#0077FF';
-      };
-
-      // Логика клика
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault(); e.stopPropagation(); 
-        let originalText = btn.innerHTML;
-        
-        btn.innerHTML = '⏳ Сбор...'; 
-        btn.style.backgroundColor = '#6c757d'; btn.style.color = 'white';
-        
-        await processPost(article);
-        
-        btn.innerHTML = '✅ Готово!'; 
-        btn.style.backgroundColor = '#28a745'; btn.style.color = 'white';
-        
-        setTimeout(() => { 
-          btn.innerHTML = originalText; 
-          btn.onmouseout(); // Возвращаем прозрачный стиль
-        }, 2000);
-      });
-
-      wrapper.appendChild(btn);
-      
-      // ГЛАВНАЯ ФИШКА: Вставляем нашу панель в САМОЕ НАЧАЛО тега <article>
-      // Теперь она не "висит в воздухе", а является физической частью верстки поста.
-      article.insertBefore(wrapper, article.firstChild);
-    }
-  });
-}
-
-// --- СИСТЕМА НАСТРОЕК (ПОКАЗЫВАТЬ ИЛИ НЕТ) ---
-let isButtonEnabled = true;
-
-// 1. Проверяем настройки при загрузке страницы
-chrome.storage.local.get({ showInlineBtn: true }, (items) => {
-  isButtonEnabled = items.showInlineBtn;
-  if (isButtonEnabled) injectCopyButtons();
-});
-
-// 2. Слушаем изменения настроек в реальном времени
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.showInlineBtn !== undefined) {
-    isButtonEnabled = changes.showInlineBtn.newValue;
-    if (isButtonEnabled) {
-      injectCopyButtons();
-    } else {
-      // Если пользователь выключил кнопку - моментально удаляем их со страницы
-      document.querySelectorAll('.dno-copy-btn').forEach(btn => btn.remove());
+// Следим за появлением всплывающего контекстного меню на странице
+const menuObserver = new MutationObserver((mutations) => {
+  for (let mut of mutations) {
+    for (let node of mut.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        // Проверяем, является ли добавленный элемент меню (ActionSheet, Popover или Dropdown)
+        let isMenu = node.matches('[class*="ActionSheet"], [class*="Popover"], [class*="Dropdown"], [class*="Menu"]') || 
+                     node.querySelector('[class*="ActionSheet"], [class*="Popover"], [class*="Dropdown"], [class*="Menu"]');
+                            
+        if (isMenu && currentArticle) {
+          // Ищем любой пункт меню внутри, чтобы встроиться в этот же список
+          let sampleItem = node.querySelector('[role="button"], [class*="Item"], [class*="Cell"], [class*="SimpleCell"]');
+          if (sampleItem && sampleItem.parentElement) {
+            injectMenuButton(sampleItem.parentElement, currentArticle, sampleItem);
+          }
+        }
+      }
     }
   }
 });
+menuObserver.observe(document.body, { childList: true, subtree: true });
 
-// 3. Наблюдатель за скроллом
-const observer = new MutationObserver(() => {
-  if (isButtonEnabled) injectCopyButtons();
-});
-observer.observe(document.body, { childList: true, subtree: true });
+function injectMenuButton(listWrapper, article, sampleItem) {
+  if (listWrapper.querySelector('.dno-copy-menu-btn')) return; // Кнопка уже есть
 
-// --- СЛУШАТЕЛЬ КЛИКА ПО ИКОНКЕ РАСШИРЕНИЯ (Работает всегда) ---
+  let btn = document.createElement('div');
+  // Наследуем все классы оригинального пункта меню для идеального дизайна ВК
+  btn.className = sampleItem.className + ' dno-copy-menu-btn';
+  btn.classList.remove('vkuiTappable--activated', 'vkuiTappable--focused'); // Убираем лишние состояния фокуса
+  btn.style.cursor = 'pointer';
+
+  // Копируем внутреннюю верстку ячеек ВК, но подставляем свой текст
+  let hasInnerContent = sampleItem.querySelector('[class*="content"]') || sampleItem.querySelector('[class*="children"]');
+  if (hasInnerContent) {
+    let contentClass = sampleItem.querySelector('[class*="content"]')?.className || '';
+    let childrenClass = sampleItem.querySelector('[class*="children"]')?.className || '';
+    btn.innerHTML = `<div class="${contentClass}"><span class="${childrenClass}" style="color: #0077FF; font-weight: 500;">📋 Скопировать HTML</span></div>`;
+  } else {
+    btn.innerHTML = `<span style="color: #0077FF; font-weight: 500;">📋 Скопировать HTML</span>`;
+    btn.style.padding = '12px 16px';
+  }
+
+  // Эффект наведения
+  btn.onmouseover = () => { btn.style.backgroundColor = 'rgba(0, 119, 255, 0.08)'; };
+  btn.onmouseout = () => { btn.style.backgroundColor = 'transparent'; };
+
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.body.click(); // Имитируем клик по экрану, чтобы закрыть меню
+    await processPost(article);
+  });
+
+  listWrapper.appendChild(btn);
+}
+
+// Резервный слушатель для клика по иконке на панели Chrome
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "copy_first_post") {
-    let articles = document.querySelectorAll('article');
+    let articles = document.querySelectorAll('[data-testid="post-content-container"], article, .post, [data-testid="post"]');
     let firstPost = null;
     
     for (let article of articles) {
