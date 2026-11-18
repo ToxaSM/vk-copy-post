@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>VK Copy Post — настройки</title><link rel="stylesheet" href="options.css"></head>
+<body><main>
+<h1>VK Copy Post</h1>
+<label><input type="checkbox" id="showCopyButton"> Показывать 📋 после значка репоста</label>
+<p>Значок копирует HTML поста. При наведении появляется подсказка «Скопировать HTML». В мессенджере VK (/im) кнопка отключена. Настройка применяется сразу во всех вкладках.</p>
+<label><input type="checkbox" id="removeHashtags"> Удалять хештеги при копировании</label>
+<p>Удаляет #хештеги, в том числе #тег@сообщество, из текста. Адреса ссылок сохраняются. По умолчанию выключено.</p>
+<p id="status" role="status" aria-live="polite"></p>
+<h2>Обратная связь</h2>
+<p>К сообщению будут приложены последние 20 событий: время, версия, этап копирования и коды ошибок. Журнал хранится только в этом браузере: до 50 событий за последние 7 дней. Тексты постов, переписка, адреса страниц и содержимое буфера не записываются.</p>
+<details><summary>Посмотреть диагностику перед отправкой</summary><button id="refreshDiagnostics" type="button">Обновить журнал</button><pre id="diagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere">Журнал загружается…</pre></details>
+<button id="report" type="button">Сообщить, что расширение не работает</button>
+<p>Откроется публичная форма GitHub Issues с диагностикой. Проверьте содержимое, опишите проблему и нажмите Submit new issue. Нужна учётная запись GitHub. Не добавляйте личные данные.</p>
+<h2>Обновления</h2>
+<label><input type="checkbox" id="notifyUpdates"> Уведомлять о новых версиях</label>
+<p>Проверяем опубликованные стабильные релизы на GitHub раз в сутки, пока работает Chrome. О каждой новой версии уведомляем один раз. Текст постов и адреса страниц не отправляются.</p>
+<button id="checkUpdates" type="button">Проверить сейчас</button>
+<p id="updateStatus" role="status" aria-live="polite"></p>
+<a id="releaseLink" href="https://github.com/ToxaSM/vk-copy-post/releases" target="_blank" rel="noopener noreferrer">Открыть релизы на GitHub</a>
+<p>Как обновить: скачайте файл vk-copy-post.zip из раздела Assets нужного релиза. Распакуйте и замените файлы в прежней папке расширения. На странице chrome://extensions нажмите кнопку перезагрузки на карточке VK Copy Post, затем перезагрузите вкладки VK. Настройки сохранятся, если оставить ту же папку и не удалять расширение.</p>
+<p id="version"></p>
+</main><script src="options.js"></script></body></html>

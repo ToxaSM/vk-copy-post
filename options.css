@@ -1,0 +1,12 @@
+body { font: 16px/1.6 system-ui, sans-serif; color: #202631; background: #f3f5f7; margin: 0; }
+main { max-width: 640px; margin: 40px auto; padding: 32px; background: white; border-radius: 16px; }
+h1 { margin-top: 0; } h2 { font-size: 20px; margin-top: 28px; }
+label { font-weight: 600; } input { width: 18px; height: 18px; vertical-align: middle; }
+button { padding: 12px 18px; border: 0; border-radius: 8px; background: #0077ff; color: white; font: inherit; cursor: pointer; }
+a { color: #005fc9; } p { color: #526070; } #status { min-height: 26px; }
+#updateStatus { padding: 12px 16px; border-radius: 8px; border: 1px solid transparent; }
+#updateStatus[data-kind="success"] { color: #11612d; background: #e8f7ed; border-color: #a8ddba; }
+#updateStatus[data-kind="error"] { color: #9f2018; background: #fff0ee; border-color: #f0b1aa; }
+#updateStatus[data-kind="info"] { color: #0757a6; background: #eaf3ff; border-color: #adcefa; }
+#updateStatus[data-kind="warning"] { color: #795200; background: #fff7db; border-color: #e9d180; }
+@media(max-width: 700px) { main { margin: 16px; padding: 20px; } }

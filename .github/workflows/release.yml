@@ -1,0 +1,45 @@
+name: Test and package
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node -e "if ('v' + require('./manifest.json').version !== process.env.GITHUB_REF_NAME) process.exit(1)"
+      - run: cd dist/vk-copy-post && zip -r ../vk-copy-post.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vk-copy-post
+          path: dist/vk-copy-post.zip
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Release v'))
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vk-copy-post
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          RELEASE_TAG="v$(node -p "require('./manifest.json').version")"
+          gh release create "$RELEASE_TAG" vk-copy-post.zip --target "$GITHUB_SHA" --generate-notes

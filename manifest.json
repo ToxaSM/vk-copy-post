@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
   "name": "[DNO_IT] VK Copy Post",
-  "version": "3.0",
-  "description": "Копирует посты ВК в HTML: из меню управления постом (3 точки) или по клику на иконку расширения",
-  "permissions": ["activeTab", "scripting"],
+  "version": "3.1.5",
+  "description": "Копирует посты ВК в HTML: значком 📋 после репоста или по клику на иконку расширения",
+  "permissions": ["activeTab", "storage", "clipboardWrite", "alarms", "notifications"],
+  "host_permissions": ["https://api.github.com/*"],
+  "options_page": "options.html",
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["*://*.vk.com/*", "*://*.vk.ru/*"],
-      "js": ["content.js"],
+      "js": ["parser.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
