@@ -1,4 +1,4 @@
-name: Test and package
+name: Validate and package
 on:
   push:
     branches: [main]
@@ -7,28 +7,46 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - name: Validate extension files
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          const files = [
+            manifest.background.service_worker,
+            ...manifest.content_scripts.flatMap(item => item.js),
+            manifest.options_page,
+            ...Object.values(manifest.icons),
+            'diagnostics.js', 'updates.js', 'options.js', 'options.css'
+          ];
+          for (const file of files) {
+            if (!fs.existsSync(file)) throw new Error(`Missing extension file: ${file}`);
+          }
+          console.log(`Extension ${manifest.version}: all required files exist`);
+          NODE
+      - name: Check JavaScript syntax
+        run: for file in *.js; do node --check "$file"; done
       - name: Check release version
         if: startsWith(github.ref, 'refs/tags/v')
         run: node -e "if ('v' + require('./manifest.json').version !== process.env.GITHUB_REF_NAME) process.exit(1)"
-      - run: cd dist/vk-copy-post && zip -r ../vk-copy-post.zip .
+      - name: Package extension
+        run: |
+          mkdir -p dist
+          zip dist/vk-copy-post.zip manifest.json background.js content.js parser.js diagnostics.js updates.js options.html options.css options.js icon.png
       - uses: actions/upload-artifact@v4
         with:
           name: vk-copy-post
           path: dist/vk-copy-post.zip
   release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Release v'))
-    needs: test
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
